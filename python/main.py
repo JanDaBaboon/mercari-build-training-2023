@@ -2,11 +2,13 @@ import os
 import logging
 import pathlib
 import json
-from fastapi import FastAPI, Form, HTTPException, File, UploadFile
+import sqlite3
+import hashlib
+from fastapi import FastAPI, Form, HTTPException, File, UploadFile, Query
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import hashlib
+
 
 app = FastAPI()
 logger = logging.getLogger("uvicorn")
@@ -22,20 +24,39 @@ app.add_middleware(
 )
 
 
-inventory = {}
+#Function to add a single item to DB
+def AddItemDB(name, category, image_name):
+    conn = sqlite3.connect('mercari.sqlite3')
+    c = conn.cursor()
+    c.execute("SELECT id FROM categories WHERE name = ?", (category,))
+    category_id = c.fetchone()[0]
+    c.execute("INSERT INTO items (name, category_id, image_filename) VALUES (?, ?, ?)", (name, category_id, image_filename))
+    conn.commit()
+    conn.close()
 
+def ShowDB():
+    conn = sqlite3.connect('mercari.sqlite3')
+    c = conn.cursor()
+    c.execute("""SELECT items.id, items.name, categories.name AS category_name, items.image_filename
+                FROM items
+                JOIN categories ON items.category_id = categories.id;
+                """)
+    listOfItems = c.fetchall()
+    items = [{'id': item[0], 'name': item[1], 'category_name': item[2], 'image_filename': item[3]} for item in listOfItems]
 
-def RetrieveItems(filename):
-    with open(filename, "r") as f:
-        try:
-            data = json.load(f)
-            if "items" in data:
-                inventory = data
-            else:
-                inventory = {'items': []}
-        except:
-            inventory = {'items': []}
-    return inventory
+    conn.commit()
+    conn.close()
+    return items
+
+def SearchDB(keyword):
+    conn = sqlite3.connect('mercari.sqlite3')
+    c = conn.cursor()
+    c.execute("SELECT * from items WHERE name = (?)", (keyword,))
+    listOfItems = c.fetchall()
+    conn.commit()
+    conn.close()
+    return listOfItems
+
 
 
 def hashingImage(image: UploadFile = File(...)):
@@ -45,16 +66,15 @@ def hashingImage(image: UploadFile = File(...)):
     return sha256.hexdigest()
 
 
-@app.get("/")
-def root():
-    value = RetrieveItems("items.json")
-    return value
-
-
 @app.get("/items")
 def list_items():
-    inventory = RetrieveItems("items.json")
-    return inventory
+    return ShowDB()
+
+
+@app.get("/search")
+async def search_item(keyword: str = Query(...)):
+    return SearchDB(keyword)
+
 
 
 @app.post("/items")
@@ -64,18 +84,7 @@ async def add_item(name: str = Form(...), category: str = Form(...), image: Uplo
 
     hashedImage = hashingImage(image)
 
-    newItem = {
-        'name': name,
-        'category': category,
-        'image': hashedImage
-    }
-
-    inventory = RetrieveItems("items.json")
-
-    inventory["items"].append(newItem)
-
-    with open("items.json", "w") as file:
-        json.dump(inventory, file)
+    AddItemDB(name, category, hashedImage)
 
     image_path = images / hashedImage
     with open(image_path, "wb") as file:
@@ -83,18 +92,6 @@ async def add_item(name: str = Form(...), category: str = Form(...), image: Uplo
 
     return {"message": f"item received with name: {name}, category: {category}, image: {hashedImage}"}
 
-
-@app.get("/items/{item_id}")
-async def get_item_id(item_id: int):
-    inventory = RetrieveItems("items.json")
-
-    item_id -= 1
-
-    if item_id >= len(inventory["items"]) or item_id == -1:
-        raise HTTPException(status_code=404, detail="Item Id does not exist")
-
-    specificItem = inventory["items"][item_id]
-    return specificItem, item_id
 
 @app.get("/image/{image_filename}")
 async def get_image(image_filename):

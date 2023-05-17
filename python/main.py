@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+DB = "/db/mercari.sqlite3"
 
 app = FastAPI()
 logger = logging.getLogger("uvicorn")
@@ -25,8 +26,8 @@ app.add_middleware(
 
 
 #Function to add a single item to DB
-def AddItemDB(name, category, image_name):
-    conn = sqlite3.connect('mercari.sqlite3')
+def AddItemDB(name, category, image_filename):
+    conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("SELECT id FROM categories WHERE name = ?", (category,))
     category_id = c.fetchone()[0]
@@ -35,7 +36,7 @@ def AddItemDB(name, category, image_name):
     conn.close()
 
 def ShowDB():
-    conn = sqlite3.connect('mercari.sqlite3')
+    conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("""SELECT items.id, items.name, categories.name AS category_name, items.image_filename
                 FROM items
@@ -49,7 +50,7 @@ def ShowDB():
     return items
 
 def SearchDB(keyword):
-    conn = sqlite3.connect('mercari.sqlite3')
+    conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("SELECT * from items WHERE name = (?)", (keyword,))
     listOfItems = c.fetchall()
